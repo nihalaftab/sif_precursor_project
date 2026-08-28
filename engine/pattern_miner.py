@@ -13,11 +13,13 @@ def mine_patterns(
     narratives: List[str],
     embeddings: Optional[np.ndarray] = None,
     n_topics: int = 10,
+    fast_mode: bool = True,
 ) -> Dict:
     """
     Mine recurring precursor patterns from SIF-flagged report narratives.
 
-    Falls back to TF-IDF + KMeans clustering if BERTopic not available.
+    Uses high-speed TF-IDF + KMeans clustering (default/fast_mode)
+    or BERTopic if fast_mode=False.
 
     Returns:
         {
@@ -29,14 +31,16 @@ def mine_patterns(
     if len(narratives) < 5:
         return {"topics": [], "doc_topics": [], "method": "insufficient_data"}
 
-    # Try BERTopic first
-    try:
-        return _mine_bertopic(narratives, embeddings, n_topics)
-    except Exception:
-        pass
+    if not fast_mode:
+        # Try BERTopic first
+        try:
+            return _mine_bertopic(narratives, embeddings, n_topics)
+        except Exception:
+            pass
 
-    # Fallback: TF-IDF + KMeans
+    # Fast default: TF-IDF + KMeans
     return _mine_tfidf_kmeans(narratives, n_topics)
+
 
 
 def _mine_bertopic(narratives: List[str], embeddings, n_topics: int) -> Dict:

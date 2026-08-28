@@ -30,8 +30,8 @@ htmlcov/
 .cache/
 .huggingface/
 
-# Streamlit
-.streamlit/
+# Streamlit — allow config.toml, ignore secrets
+.streamlit/secrets.toml
 
 # Local database / scratch
 *.duckdb

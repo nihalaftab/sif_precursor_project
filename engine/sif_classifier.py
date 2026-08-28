@@ -51,6 +51,15 @@ def _get_zero_shot_pipeline():
     return _zs_pipeline
 
 
+# ── Precompiled Signal Patterns ──────────────────────────────────────────────
+_ENERGY_PATTERNS = [re.compile(r"\b" + re.escape(k) + r"\b", re.IGNORECASE) for k in HIGH_ENERGY_KEYWORDS]
+_BARRIER_PATTERNS = [re.compile(r"\b" + re.escape(k) + r"\b", re.IGNORECASE) for k in BARRIER_FAILURE_SIGNALS]
+_FATAL_PATTERNS = [re.compile(r"\b" + re.escape(k) + r"\b", re.IGNORECASE) for k in NEAR_FATAL_SIGNALS]
+_FATALITY_BOOST_RE = re.compile(
+    r"\b(fatal|fatality|death|killed|died|life threatening|serious injury|critical|hospitalised|hospitalized)\b",
+    re.IGNORECASE
+)
+
 # ── Keyword / Signal-Based Scoring ────────────────────────────────────────────
 def _keyword_sif_score(text_lower: str) -> Tuple[float, List[str]]:
     """
@@ -60,17 +69,17 @@ def _keyword_sif_score(text_lower: str) -> Tuple[float, List[str]]:
     matched = []
 
     # High-energy hazard hits
-    energy_hits = [k for k in HIGH_ENERGY_KEYWORDS if k in text_lower]
+    energy_hits = [k for k, p in zip(HIGH_ENERGY_KEYWORDS, _ENERGY_PATTERNS) if p.search(text_lower)]
     energy_score = min(len(energy_hits) / 2.0, 1.0) * 0.45
     matched.extend(energy_hits[:3])
 
     # Barrier failure hits
-    barrier_hits = [k for k in BARRIER_FAILURE_SIGNALS if k in text_lower]
+    barrier_hits = [k for k, p in zip(BARRIER_FAILURE_SIGNALS, _BARRIER_PATTERNS) if p.search(text_lower)]
     barrier_score = min(len(barrier_hits) / 1.0, 1.0) * 0.35
     matched.extend(barrier_hits[:3])
 
     # Near-fatal / consequence hits
-    fatal_hits = [k for k in NEAR_FATAL_SIGNALS if k in text_lower]
+    fatal_hits = [k for k, p in zip(NEAR_FATAL_SIGNALS, _FATAL_PATTERNS) if p.search(text_lower)]
     fatal_score = min(len(fatal_hits) / 1.0, 1.0) * 0.30
     matched.extend(fatal_hits[:2])
 
@@ -130,13 +139,8 @@ def classify_report(
         llm_score  = _llm_sif_score(clean_text)
         sif_score  = WEIGHT_LLM * llm_score + WEIGHT_KEYWORD * kw_score
     else:
-        # Lightweight ensemble: keyword + slight LLM simulation using heuristics
-        # Heuristic boost: explicit fatality/serious injury language
-        fatality_terms = [
-            "fatal", "fatality", "death", "killed", "died", "life threatening",
-            "serious injury", "critical", "hospitalised", "hospitalised",
-        ]
-        boost = 0.15 if any(t in text_lower for t in fatality_terms) else 0.0
+        # Fast heuristic boost: explicit fatality/serious injury language
+        boost = 0.15 if _FATALITY_BOOST_RE.search(text_lower) else 0.0
         sif_score = min(kw_score + boost, 1.0)
 
     sif_score     = round(sif_score, 4)
@@ -180,8 +184,15 @@ def batch_classify(
     texts: List[str],
     use_llm: bool = False,
 ) -> List[Dict]:
-    """Classify a list of report texts."""
+    """
+    High-speed batch classification for lists of texts.
+    """
     results = []
-    for text in texts:
-        results.append(classify_report(text, use_llm=use_llm))
+    if use_llm:
+        for text in texts:
+            results.append(classify_report(text, use_llm=True))
+    else:
+        for text in texts:
+            results.append(classify_report(text, use_llm=False))
     return results
+

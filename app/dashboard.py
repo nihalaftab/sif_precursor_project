@@ -29,6 +29,13 @@ from utils.config import (
 )
 from utils.exporter import to_excel_bytes, to_pdf_bytes
 
+from engine.preprocessor import preprocess, preprocess_batch, get_embedding, get_embeddings_batch
+from engine.sif_classifier import classify_report, batch_classify
+from engine.lsr_tagger import tag_report, batch_tag
+from engine.pattern_miner import mine_patterns, summarise_patterns
+
+
+
 # ── Page Configuration ────────────────────────────────────────────────────────
 st.set_page_config(
     page_title=PAGE_TITLE,
@@ -130,12 +137,17 @@ with st.sidebar:
         "SIF Score Threshold", 0.1, 0.9, SIF_SCORE_THRESHOLD, 0.05,
         help="Reports with SIF score above this are flagged as SIF-potential"
     )
+    fast_mode = st.toggle(
+        "⚡ Ultra-Fast Analysis", value=True,
+        help="Sub-second instant analysis using high-throughput vectorized NLP engine"
+    )
     use_llm = st.checkbox(
         "🤖 Use Zero-Shot LLM", value=False,
-        help="Enable bart-large-mnli for more accurate classification (slower)"
+        help="Enable bart-large-mnli for deep zero-shot classification (slower)"
     )
     st.markdown("---")
     st.caption("v1.0 | Oil India Limited HSSE")
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -218,54 +230,46 @@ def page_upload():
 
     # ── Run Pipeline ──────────────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown('<div class="section-header">🚀 Running Analysis Pipeline</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">⚡ Running High-Speed Analysis Pipeline</div>', unsafe_allow_html=True)
 
     progress_bar = st.progress(0, text="Initialising NLP engine...")
     status_text  = st.empty()
 
-    try:
-        from engine.preprocessor   import preprocess, get_embeddings_batch
-        from engine.sif_classifier  import classify_report
-        from engine.lsr_tagger      import tag_report
-        from engine.pattern_miner   import mine_patterns, summarise_patterns
+    import time
+    start_time = time.time()
 
+    try:
         narratives = df_raw["narrative"].fillna("").tolist()
         n = len(narratives)
 
-        # Step 1: Preprocess
-        status_text.text("Step 1/4 — Preprocessing text & extracting entities...")
-        preprocessed = []
-        for i, narrative in enumerate(narratives):
-            preprocessed.append(preprocess(narrative))
-            if (i + 1) % 10 == 0:
-                progress_bar.progress((i + 1) / (n * 4), text=f"Preprocessing {i+1}/{n}...")
 
+        # Step 1: Preprocess in batch
+        progress_bar.progress(0.20, text="Step 1/4 — Preprocessing text & extracting entities (High-Speed Batch)...")
+        status_text.text("Step 1/4 — Preprocessing text & extracting entities (Batch)...")
+        preprocessed = preprocess_batch(narratives, use_spacy=False)
         clean_texts = [p["clean_text"] for p in preprocessed]
 
         # Step 2: Compute embeddings (batch)
-        progress_bar.progress(0.25, text="Step 2/4 — Computing sentence embeddings...")
-        status_text.text("Step 2/4 — Computing sentence embeddings (batch)...")
-        embeddings = get_embeddings_batch(clean_texts, show_progress=False)
+        progress_bar.progress(0.45, text="Step 2/4 — Computing sentence embeddings (Vectorized Batch)...")
+        status_text.text("Step 2/4 — Computing sentence embeddings (Vectorized Batch)...")
+        embeddings = get_embeddings_batch(clean_texts, show_progress=False, fast_mode=fast_mode)
 
-        # Step 3: Classify + Tag
-        progress_bar.progress(0.50, text="Step 3/4 — Classifying SIF potential & tagging LSR...")
-        status_text.text("Step 3/4 — Classifying SIF potential & tagging Life-Saving Rules...")
-        clf_results = []
-        lsr_results = []
-        for i, (text, emb) in enumerate(zip(clean_texts, embeddings)):
-            clf_results.append(classify_report(text, use_llm=use_llm))
-            lsr_results.append(tag_report(text, text_embedding=emb))
-            if (i + 1) % 10 == 0:
-                progress_bar.progress(0.50 + 0.30 * (i + 1) / n, text=f"Classifying {i+1}/{n}...")
+        # Step 3: Classify + Tag in batch
+        progress_bar.progress(0.70, text="Step 3/4 — Classifying SIF potential & tagging Life-Saving Rules...")
+        status_text.text("Step 3/4 — Classifying SIF potential & tagging Life-Saving Rules (Vectorized)...")
+        clf_results = batch_classify(clean_texts, use_llm=use_llm)
+        lsr_results = batch_tag(clean_texts, embeddings=embeddings, fast_mode=fast_mode)
+
 
         # Step 4: Pattern Mining (SIF-only)
-        progress_bar.progress(0.80, text="Step 4/4 — Mining precursor patterns...")
-        status_text.text("Step 4/4 — Mining recurring precursor patterns (BERTopic)...")
+        progress_bar.progress(0.90, text="Step 4/4 — Mining precursor patterns...")
+        status_text.text("Step 4/4 — Mining recurring precursor patterns (Fast Cluster Engine)...")
         sif_mask   = [r["sif_potential"] for r in clf_results]
         sif_texts  = [t for t, m in zip(clean_texts, sif_mask) if m]
         sif_embs   = embeddings[[i for i, m in enumerate(sif_mask) if m]] if any(sif_mask) else None
-        patterns   = mine_patterns(sif_texts, sif_embs, n_topics=10)
+        patterns   = mine_patterns(sif_texts, sif_embs, n_topics=10, fast_mode=fast_mode)
         st.session_state.patterns = patterns
+
 
         # Assemble results DataFrame
         results = []
@@ -293,9 +297,14 @@ def page_upload():
             })
 
         results_df = pd.DataFrame(results)
+        # Default sort by Highest SIF Risk First
+        results_df = results_df.sort_values(by=["sif_score", "sif_potential"], ascending=[False, False]).reset_index(drop=True)
         st.session_state.results_df = results_df
 
-        progress_bar.progress(1.0, text="✅ Analysis complete!")
+        elapsed_sec = time.time() - start_time
+        rate = int(n / max(elapsed_sec, 0.001))
+
+        progress_bar.progress(1.0, text=f"✅ Analysis complete in {elapsed_sec:.2f}s ({rate} reports/sec)!")
         status_text.empty()
 
         # ── Summary KPIs ───────────────────────────────────────────────────────
@@ -318,6 +327,21 @@ def page_upload():
             highest_risk_row = None
 
         st.markdown("---")
+        
+        # Speed & Performance Callout Banner
+        st.markdown(f"""
+        <div style="background: linear-gradient(90deg, #0d2238 0%, #1a3a5c 100%);
+                    color: white; padding: 12px 20px; border-radius: 8px; margin-bottom: 16px;
+                    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+            <div style="font-size: 1.05rem; font-weight: 700;">
+                ⚡ Analysis Finished: <span style="color:#2ecc71;">{total} reports processed in {elapsed_sec:.2f}s</span> ({rate:,} reports/sec)
+            </div>
+            <div style="font-size: 0.9rem; color: #ecf0f1;">
+                🎯 Prioritizing <strong>Highest Risk SIF Precursors</strong>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
         st.markdown('<div class="section-header">📊 Summary Results & Critical Risk Overview</div>', unsafe_allow_html=True)
         
         c1, c2, c3, c4 = st.columns(4)
@@ -357,41 +381,46 @@ def page_upload():
             st.markdown(f"""
             <div style="background: linear-gradient(135deg, #fff5f5 0%, #ffe3e3 100%);
                         border-left: 6px solid #e74c3c; border-radius: 12px; padding: 20px;
-                        margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(231,76,60,0.12);">
+                        margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(231,76,60,0.15);">
                 <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                    <span style="background: #e74c3c; color: white; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 0.85rem;">
-                        🔥 HIGHEST SIF RISK INCIDENT DETECTED
+                    <span style="background: #e74c3c; color: white; padding: 5px 14px; border-radius: 20px; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.5px;">
+                        🚨 HIGHEST SIF RISK INCIDENT DETECTED
                     </span>
-                    <span style="font-size: 1.15rem; font-weight: 800; color: #c0392b;">
-                        SIF Risk Score: {highest_risk_row['sif_score']:.3f} ({highest_risk_row['confidence']} Confidence)
+                    <span style="font-size: 1.25rem; font-weight: 800; color: #c0392b;">
+                        SIF Risk Score: {highest_risk_row['sif_score']:.3f} / 1.000 ({highest_risk_row['confidence']} Confidence)
                     </span>
                 </div>
-                <div style="margin-top: 12px; font-size: 1.05rem; font-weight: 700; color: #1a3a5c;">
+                <div style="margin-top: 14px; font-size: 1.05rem; font-weight: 700; color: #1a3a5c;">
                     📄 Report ID: <span style="color:#c0392b;">{highest_risk_row['report_id']}</span> | 📍 Site: <strong>{highest_risk_row['site']}</strong> | 🏢 Dept: <strong>{highest_risk_row['department']}</strong> | 📅 Date: <strong>{highest_risk_row['date']}</strong>
                 </div>
-                <div style="background: white; border-radius: 8px; padding: 14px; margin-top: 10px; font-size: 0.95rem; line-height: 1.6; color: #2c3e50; border: 1px solid #f1948a;">
-                    <strong>Full Incident Narrative:</strong><br/>
+                <div style="background: white; border-radius: 8px; padding: 16px; margin-top: 12px; font-size: 1rem; line-height: 1.6; color: #2c3e50; border: 1.5px solid #f1948a;">
+                    <strong>Incident Narrative:</strong><br/>
                     "{highest_risk_row['narrative']}"
                 </div>
-                <div style="margin-top: 12px; display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.88rem; color: #444;">
-                    <div>🏷️ <strong>Primary LSR Violated:</strong> <span style="color:#c0392b; font-weight:700;">{highest_risk_row['life_saving_rule']}</span></div>
-                    <div>🔑 <strong>Top Risk Signals:</strong> <span style="color:#d35400; font-weight:700;">{highest_risk_row['top_signals'] or 'N/A'}</span></div>
-                    <div>💬 <strong>AI Explanation:</strong> <em>{highest_risk_row['explanation']}</em></div>
+                <div style="margin-top: 14px; display: flex; gap: 24px; flex-wrap: wrap; font-size: 0.9rem; color: #333;">
+                    <div>🏷️ <strong>Primary Life-Saving Rule:</strong> <span style="color:#c0392b; font-weight:700;">{highest_risk_row['life_saving_rule']}</span></div>
+                    <div>🔑 <strong>Critical Risk Signals:</strong> <span style="color:#d35400; font-weight:700;">{highest_risk_row['top_signals'] or 'N/A'}</span></div>
+                    <div>💬 <strong>AI Risk Assessment:</strong> <em>{highest_risk_row['explanation']}</em></div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            with st.expander("🚨 View Top 5 Highest SIF-Risk Reports (Full Narratives)", expanded=False):
+            with st.expander("🚨 View Top 5 Highest SIF-Risk Incidents (Immediate Risk Triage)", expanded=True):
                 top_5_df = sif_only_df.head(5)[["report_id", "site", "department", "life_saving_rule", "sif_score", "top_signals", "narrative"]]
                 st.dataframe(
                     top_5_df,
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "narrative": st.column_config.TextColumn("Full Incident Narrative", width="large"),
-                        "sif_score": st.column_config.NumberColumn("SIF Score", format="%.3f"),
+                        "report_id": st.column_config.TextColumn("Report ID", width="small"),
+                        "site": st.column_config.TextColumn("Site", width="medium"),
+                        "life_saving_rule": st.column_config.TextColumn("Life-Saving Rule", width="medium"),
+                        "sif_score": st.column_config.ProgressColumn("SIF Score", min_value=0, max_value=1, format="%.3f"),
+                        "top_signals": st.column_config.TextColumn("Key Signals", width="medium"),
+                        "narrative": st.column_config.TextColumn("Full Narrative", width="large"),
                     }
                 )
+
 
         # SIF vs Non-SIF donut
         df_donut = pd.DataFrame({
@@ -864,7 +893,10 @@ def page_explorer():
     with st.expander("🔍 Search & Filter", expanded=True):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            sif_filter = st.selectbox("SIF Status", ["All", "SIF-Potential Only", "Non-SIF Only"])
+            risk_filter = st.selectbox(
+                "Risk Level Filter",
+                ["All Reports", "🔥 Critical SIF Risk (Score ≥ 0.75)", "🔴 All SIF-Potential", "🟢 Non-SIF Only"]
+            )
         with col2:
             conf_filter = st.multiselect("Confidence", ["HIGH", "MEDIUM", "LOW"], default=[])
         with col3:
@@ -877,10 +909,13 @@ def page_explorer():
             search_text = st.text_input("🔎 Keyword search in narrative")
 
     filtered = df.copy()
-    if sif_filter == "SIF-Potential Only":
+    if risk_filter == "🔥 Critical SIF Risk (Score ≥ 0.75)":
+        filtered = filtered[filtered["sif_score"] >= 0.75]
+    elif risk_filter == "🔴 All SIF-Potential":
         filtered = filtered[filtered["sif_potential"]]
-    elif sif_filter == "Non-SIF Only":
+    elif risk_filter == "🟢 Non-SIF Only":
         filtered = filtered[~filtered["sif_potential"]]
+
     if conf_filter:
         filtered = filtered[filtered["confidence"].isin(conf_filter)]
     if lsr_filter:
@@ -890,7 +925,10 @@ def page_explorer():
             filtered["narrative"].str.contains(search_text, case=False, na=False)
         ]
 
-    st.caption(f"Showing {len(filtered)} of {len(df)} reports")
+    # Always ensure highest risk is at top
+    filtered = filtered.sort_values(by=["sif_score", "sif_potential"], ascending=[False, False])
+    st.caption(f"Showing {len(filtered)} of {len(df)} reports (Sorted by Highest SIF Risk First)")
+
 
     # ── Sortable Table ────────────────────────────────────────────────────────
     display_cols = [
