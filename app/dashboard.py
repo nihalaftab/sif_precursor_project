@@ -303,28 +303,105 @@ def page_upload():
         sif_cnt  = results_df["sif_potential"].sum()
         sif_pct  = round(100 * sif_cnt / total, 1) if total else 0
         high_cnt = (results_df["confidence"] == "HIGH").sum()
-        top_site = (
-            results_df[results_df["sif_potential"]]["site"]
-            .value_counts().index[0]
-            if sif_cnt > 0 else "N/A"
-        )
+
+        sif_only_df = results_df[results_df["sif_potential"]].sort_values("sif_score", ascending=False)
+        if not sif_only_df.empty:
+            site_counts = sif_only_df["site"].value_counts()
+            top_site_name = site_counts.index[0]
+            top_site_count = site_counts.iloc[0]
+            top_site_total = (results_df["site"] == top_site_name).sum()
+            top_site_pct = round(100 * top_site_count / top_site_total, 1) if top_site_total else 0
+            top_site_display = f"{top_site_name} ({top_site_count} SIFs, {top_site_pct}%)"
+            highest_risk_row = sif_only_df.iloc[0]
+        else:
+            top_site_display = "N/A"
+            highest_risk_row = None
 
         st.markdown("---")
-        st.markdown('<div class="section-header">📊 Summary Results</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">📊 Summary Results & Critical Risk Overview</div>', unsafe_allow_html=True)
+        
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.metric("📄 Total Reports", total)
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-label">📄 Total Reports</div>
+                <div class="metric-value">{total}</div>
+            </div>
+            """, unsafe_allow_html=True)
         with c2:
-            st.metric("🔴 SIF-Potential", f"{sif_cnt} ({sif_pct}%)", delta=f"+{sif_cnt}")
+            st.markdown(f"""
+            <div class="metric-card danger">
+                <div class="metric-label">🔴 SIF-Potential</div>
+                <div class="metric-value">{sif_cnt} <span style="font-size:1.1rem; color:#e74c3c;">({sif_pct}%)</span></div>
+            </div>
+            """, unsafe_allow_html=True)
         with c3:
-            st.metric("⚠️ HIGH Confidence", high_cnt)
+            st.markdown(f"""
+            <div class="metric-card warning">
+                <div class="metric-label">⚠️ HIGH Confidence</div>
+                <div class="metric-value">{high_cnt}</div>
+            </div>
+            """, unsafe_allow_html=True)
         with c4:
-            st.metric("📍 Highest-Risk Site", top_site)
+            st.markdown(f"""
+            <div class="metric-card danger">
+                <div class="metric-label">📍 Highest-Risk Site</div>
+                <div style="font-size: 1.15rem; font-weight: 700; color: #1a3a5c; margin-top: 6px; word-wrap: break-word; line-height: 1.3;">
+                    {top_site_display}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ── Highest Critical Risk Incident Highlight ────────────────────────────
+        if highest_risk_row is not None:
+            st.markdown(f"""
+            <div style="background: linear-gradient(135deg, #fff5f5 0%, #ffe3e3 100%);
+                        border-left: 6px solid #e74c3c; border-radius: 12px; padding: 20px;
+                        margin-top: 15px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(231,76,60,0.12);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                    <span style="background: #e74c3c; color: white; padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 0.85rem;">
+                        🔥 HIGHEST SIF RISK INCIDENT DETECTED
+                    </span>
+                    <span style="font-size: 1.15rem; font-weight: 800; color: #c0392b;">
+                        SIF Risk Score: {highest_risk_row['sif_score']:.3f} ({highest_risk_row['confidence']} Confidence)
+                    </span>
+                </div>
+                <div style="margin-top: 12px; font-size: 1.05rem; font-weight: 700; color: #1a3a5c;">
+                    📄 Report ID: <span style="color:#c0392b;">{highest_risk_row['report_id']}</span> | 📍 Site: <strong>{highest_risk_row['site']}</strong> | 🏢 Dept: <strong>{highest_risk_row['department']}</strong> | 📅 Date: <strong>{highest_risk_row['date']}</strong>
+                </div>
+                <div style="background: white; border-radius: 8px; padding: 14px; margin-top: 10px; font-size: 0.95rem; line-height: 1.6; color: #2c3e50; border: 1px solid #f1948a;">
+                    <strong>Full Incident Narrative:</strong><br/>
+                    "{highest_risk_row['narrative']}"
+                </div>
+                <div style="margin-top: 12px; display: flex; gap: 20px; flex-wrap: wrap; font-size: 0.88rem; color: #444;">
+                    <div>🏷️ <strong>Primary LSR Violated:</strong> <span style="color:#c0392b; font-weight:700;">{highest_risk_row['life_saving_rule']}</span></div>
+                    <div>🔑 <strong>Top Risk Signals:</strong> <span style="color:#d35400; font-weight:700;">{highest_risk_row['top_signals'] or 'N/A'}</span></div>
+                    <div>💬 <strong>AI Explanation:</strong> <em>{highest_risk_row['explanation']}</em></div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            with st.expander("🚨 View Top 5 Highest SIF-Risk Reports (Full Narratives)", expanded=False):
+                top_5_df = sif_only_df.head(5)[["report_id", "site", "department", "life_saving_rule", "sif_score", "top_signals", "narrative"]]
+                st.dataframe(
+                    top_5_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "narrative": st.column_config.TextColumn("Full Incident Narrative", width="large"),
+                        "sif_score": st.column_config.NumberColumn("SIF Score", format="%.3f"),
+                    }
+                )
 
         # SIF vs Non-SIF donut
+        df_donut = pd.DataFrame({
+            "Classification": ["SIF-Potential", "Non-SIF"],
+            "Count": [sif_cnt, max(0, total - sif_cnt)],
+        })
         fig_donut = px.pie(
-            names=["SIF-Potential", "Non-SIF"],
-            values=[sif_cnt, total - sif_cnt],
+            df_donut,
+            names="Classification",
+            values="Count",
             hole=0.55,
             color_discrete_sequence=["#e74c3c", "#27ae60"],
             title="SIF vs Non-SIF Classification Split",
@@ -333,14 +410,22 @@ def page_upload():
         fig_donut.update_layout(height=320, margin=dict(t=40, b=10))
 
         # Confidence distribution
-        conf_counts = results_df[results_df["sif_potential"]]["confidence"].value_counts()
-        fig_conf = px.bar(
-            x=conf_counts.index, y=conf_counts.values,
-            color=conf_counts.index,
-            color_discrete_map={"HIGH": "#e74c3c", "MEDIUM": "#f39c12", "LOW": "#95a5a6"},
-            title="SIF Confidence Level Distribution",
-            labels={"x": "Confidence", "y": "Count"},
-        )
+        sif_only_df = results_df[results_df["sif_potential"]]
+        if not sif_only_df.empty:
+            conf_counts_df = sif_only_df["confidence"].value_counts().reset_index()
+            conf_counts_df.columns = ["Confidence", "Count"]
+            fig_conf = px.bar(
+                conf_counts_df,
+                x="Confidence",
+                y="Count",
+                color="Confidence",
+                color_discrete_map={"HIGH": "#e74c3c", "MEDIUM": "#f39c12", "LOW": "#95a5a6"},
+                title="SIF Confidence Level Distribution",
+            )
+        else:
+            fig_conf = px.bar(
+                title="SIF Confidence Level Distribution (No SIF Reports)",
+            )
         fig_conf.update_layout(height=320, showlegend=False, margin=dict(t=40, b=10))
 
         col1, col2 = st.columns(2)
@@ -469,13 +554,14 @@ def page_heatmap():
             "<extra></extra>"
         ),
     ))
+    max_pct = site_summary["sif_pct"].max() if not site_summary.empty and not pd.isna(site_summary["sif_pct"].max()) else 10
     fig_bar.update_layout(
         title="SIF-Precursor Density by Site (%)",
         xaxis_title="SIF-Potential Reports (%)",
         height=400,
         margin=dict(l=10, r=80, t=40, b=10),
         plot_bgcolor="#fafafa",
-        xaxis=dict(range=[0, max(site_summary["sif_pct"].max() * 1.2, 10)]),
+        xaxis=dict(range=[0, max(max_pct * 1.2, 10)]),
     )
     st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -484,7 +570,7 @@ def page_heatmap():
         site_summary,
         x="total_reports",
         y="sif_pct",
-        size="sif_count",
+        size="sif_count" if site_summary["sif_count"].sum() > 0 else None,
         color="sif_pct",
         text="site",
         color_continuous_scale="RdYlGn_r",
@@ -502,18 +588,24 @@ def page_heatmap():
 
     # ── Heatmap: Site × Department ────────────────────────────────────────────
     st.markdown("##### SIF Count Heatmap: Site × Department")
-    pivot = filtered[filtered["sif_potential"]].pivot_table(
-        index="site", columns="department", values="report_id", aggfunc="count", fill_value=0
-    )
-    if not pivot.empty:
-        fig_heat = px.imshow(
-            pivot,
-            color_continuous_scale="Reds",
-            title="SIF Reports Heatmap (Site × Department)",
-            text_auto=True,
+    sif_reports_df = filtered[filtered["sif_potential"]]
+    if not sif_reports_df.empty:
+        pivot = sif_reports_df.pivot_table(
+            index="site", columns="department", values="report_id", aggfunc="count", fill_value=0
         )
-        fig_heat.update_layout(height=400)
-        st.plotly_chart(fig_heat, use_container_width=True)
+        if not pivot.empty:
+            fig_heat = px.imshow(
+                pivot,
+                color_continuous_scale="Reds",
+                title="SIF Reports Heatmap (Site × Department)",
+                text_auto=True,
+            )
+            fig_heat.update_layout(height=400)
+            st.plotly_chart(fig_heat, use_container_width=True)
+        else:
+            st.info("No data available for Site × Department heatmap.")
+    else:
+        st.info("No SIF-potential reports available for Site × Department heatmap.")
 
     # ── Risk Table ────────────────────────────────────────────────────────────
     st.markdown("##### 📊 Site Risk Ranking Table")

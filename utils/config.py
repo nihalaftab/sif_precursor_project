@@ -181,16 +181,16 @@ OIL_FIELD_ABBREVIATIONS = {
 
 # ── High-Energy Hazard Keywords (for keyword scoring) ────────────────────────
 HIGH_ENERGY_KEYWORDS = [
-    "electrical", "electrocution", "electric shock", "high voltage",
-    "pressure", "high pressure", "pressurized", "overpressure",
-    "explosion", "fire", "ignition", "flammable", "combustible",
-    "chemical", "toxic", "poisonous", "h2s", "hydrogen sulphide",
-    "fall", "falling", "height", "gravity",
-    "crush", "crushing", "pinch", "caught",
-    "dropped object", "struck", "impact",
-    "asphyxiation", "oxygen deficiency",
+    "electrical", "electrocution", "electric shock", "high voltage", "live panel", "busbar", "415v", "energised", "energized",
+    "pressure", "high pressure", "pressurised", "pressurized", "overpressure", "bar", "psi", "flange", "valve", "pipe", "pipeline", "gas",
+    "explosion", "fire", "flash fire", "ignition", "ignited", "flammable", "combustible", "flare", "hydrocarbon",
+    "chemical", "toxic", "poisonous", "h2s", "hydrogen sulphide", "asphyxiation", "oxygen deficiency", "dizzy", "unconscious",
+    "fall", "falling", "height", "scaffold", "scaffolding", "ladder", "roof", "gravity", "fragile sheet",
+    "crush", "crushing", "pinch", "caught", "impeller", "rotating", "coupling", "shaft",
+    "dropped object", "struck", "struck by", "impact", "bop", "crane", "lifting", "load", "overload", "sling", "rigging", "winch", "wire rope",
     "radiation", "radioactive",
     "kinetic energy", "rotating equipment", "moving machinery",
+    "speeding", "collision", "vehicle", "truck", "tanker", "rollover",
 ]
 
 # ── Critical/Near-Fatal Signal Phrases ───────────────────────────────────────
@@ -200,16 +200,25 @@ NEAR_FATAL_SIGNALS = [
     "life threatening", "serious injury", "fatality potential",
     "near miss", "near-miss", "close call", "narrowly avoided",
     "almost", "just missed", "luckily", "fortunately",
+    "injuring", "injured", "hospitalised", "hospitalized", "unconscious", "loss of consciousness",
+    "electric shock", "burn", "burned", "burning", "degloving", "dropped onto", "fell onto",
+    "flash fire", "pressure release", "blowout", "explosion",
 ]
 
 # ── Barrier Failure Signals ───────────────────────────────────────────────────
 BARRIER_FAILURE_SIGNALS = [
-    "not wearing", "without ppe", "no harness", "no permit",
-    "expired permit", "incomplete permit", "bypass", "override",
-    "missing guard", "guard removed", "no gas test", "not tested",
-    "not isolated", "isolation not verified", "not locked out",
-    "unauthorized", "without authorization", "no training",
-    "untrained", "inadequate", "defective", "damaged equipment",
+    "not wearing", "without ppe", "no harness", "without harness", "no permit",
+    "expired permit", "incomplete permit", "invalid permit", "without permit", "without a permit", "without a valid permit",
+    "bypass", "bypassed", "bypassing", "override", "overriding", "wired shut", "inhibited", "defeat", "defeated",
+    "missing guard", "guard removed", "removed guard", "no gas test", "not tested", "without conducting", "without completing",
+    "not isolated", "isolation not", "not completed", "loto was not", "no loto", "without loto", "lockout tagout", "not locked out",
+    "unauthorized", "without authorization", "no training", "untrained", "inadequate", "defective", "damaged equipment",
+    "no standby man", "rescue equipment was not", "no fire watcher", "no fire watch", "empty fire extinguisher",
+    "no tool tethering", "no toe-boards", "no exclusion zone", "past its rated inspection date", "without fall protection",
+    "no scaffold inspection", "without a buddy", "ladder was not secured", "no fall arrest", "no safety net", "no lift plan",
+    "without a valid lifting plan", "banksman was not in position", "shackle pin was unscrewed", "no jsa", "without re-authorization",
+    "not wearing a seatbelt", "no seatbelt", "mobile phone", "without a banksman", "reversing camera was defective",
+    "journey management plan had not been followed",
 ]
 
 # ── Database Configuration ────────────────────────────────────────────────────

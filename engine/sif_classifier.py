@@ -59,22 +59,27 @@ def _keyword_sif_score(text_lower: str) -> Tuple[float, List[str]]:
     """
     matched = []
 
-    # High-energy hazard hits (weight 0.5)
+    # High-energy hazard hits
     energy_hits = [k for k in HIGH_ENERGY_KEYWORDS if k in text_lower]
-    energy_score = min(len(energy_hits) / 3.0, 1.0) * 0.5
+    energy_score = min(len(energy_hits) / 2.0, 1.0) * 0.45
     matched.extend(energy_hits[:3])
 
-    # Barrier failure hits (weight 0.3)
+    # Barrier failure hits
     barrier_hits = [k for k in BARRIER_FAILURE_SIGNALS if k in text_lower]
-    barrier_score = min(len(barrier_hits) / 2.0, 1.0) * 0.3
+    barrier_score = min(len(barrier_hits) / 1.0, 1.0) * 0.35
     matched.extend(barrier_hits[:3])
 
-    # Near-fatal signal hits (weight 0.2)
+    # Near-fatal / consequence hits
     fatal_hits = [k for k in NEAR_FATAL_SIGNALS if k in text_lower]
-    fatal_score = min(len(fatal_hits) / 2.0, 1.0) * 0.2
+    fatal_score = min(len(fatal_hits) / 1.0, 1.0) * 0.30
     matched.extend(fatal_hits[:2])
 
     total_score = energy_score + barrier_score + fatal_score
+
+    # Synergy bonus for energy hazard + barrier failure / near fatal combination
+    if (energy_hits and barrier_hits) or (barrier_hits and fatal_hits) or (energy_hits and fatal_hits):
+        total_score += 0.15
+
     return min(total_score, 1.0), list(dict.fromkeys(matched))[:6]
 
 

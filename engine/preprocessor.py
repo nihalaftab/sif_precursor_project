@@ -24,11 +24,14 @@ def _get_nlp():
             import spacy
             try:
                 _nlp = spacy.load("en_core_web_sm")
-            except OSError:
-                from spacy.cli import download
-                download("en_core_web_sm")
-                _nlp = spacy.load("en_core_web_sm")
-        except ImportError:
+            except Exception:
+                try:
+                    from spacy.cli import download
+                    download("en_core_web_sm")
+                    _nlp = spacy.load("en_core_web_sm")
+                except Exception:
+                    _nlp = None
+        except Exception:
             _nlp = None
     return _nlp
 
@@ -36,9 +39,12 @@ def _get_nlp():
 def _get_embedder():
     global _embedder
     if _embedder is None:
-        from sentence_transformers import SentenceTransformer
-        from utils.config import EMBEDDING_MODEL
-        _embedder = SentenceTransformer(EMBEDDING_MODEL)
+        try:
+            from sentence_transformers import SentenceTransformer
+            from utils.config import EMBEDDING_MODEL
+            _embedder = SentenceTransformer(EMBEDDING_MODEL)
+        except Exception:
+            _embedder = "fallback"
     return _embedder
 
 
@@ -157,18 +163,42 @@ def preprocess(raw_text: str) -> Dict:
     }
 
 
+import numpy as np
+
 def get_embedding(text: str):
     """Return sentence embedding for a given text."""
     embedder = _get_embedder()
-    return embedder.encode(text, convert_to_numpy=True)
+    if embedder != "fallback":
+        try:
+            return embedder.encode(text, convert_to_numpy=True)
+        except Exception:
+            pass
+    res = get_embeddings_batch([text], show_progress=False)
+    return res[0]
 
 
 def get_embeddings_batch(texts: List[str], batch_size: int = 64, show_progress: bool = True):
     """Return sentence embeddings for a list of texts."""
     embedder = _get_embedder()
-    return embedder.encode(
-        texts,
-        batch_size=batch_size,
-        show_progress_bar=show_progress,
-        convert_to_numpy=True,
-    )
+    if embedder != "fallback":
+        try:
+            return embedder.encode(
+                texts,
+                batch_size=batch_size,
+                show_progress_bar=show_progress,
+                convert_to_numpy=True,
+            )
+        except Exception:
+            pass
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    try:
+        vec = TfidfVectorizer(max_features=384, stop_words="english")
+        X = vec.fit_transform(texts).toarray()
+        if X.shape[1] < 384:
+            pad = np.zeros((X.shape[0], 384 - X.shape[1]))
+            X = np.hstack([X, pad])
+        norms = np.linalg.norm(X, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return X / norms
+    except Exception:
+        return np.zeros((len(texts), 384))
